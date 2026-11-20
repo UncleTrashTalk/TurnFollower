@@ -36,3 +36,11 @@ These options are under **Game Settings → Configure Settings → Trash's Dynam
 - **Out Of Combat Following** enables party framing outside combat while **Follow Turns** is on. This option is off by default.
 
 Assistant GMs and GMs automatically follow the active player's visible targets when **Follow Turns** is on, including when they are viewing without a character. The module's target relay fallback is applied only for those roles.
+
+## Credits
+
+Created by **UncleTrashTalk**. Thanks to [DM WolfyQuest](https://www.twitch.tv/wolfyquest) for testing and feature ideas.
+
+## License
+
+See [LICENSE](LICENSE) for the terms of use and redistribution.
