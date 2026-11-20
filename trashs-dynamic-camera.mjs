@@ -1,12 +1,25 @@
 const MODULE_ID = "trashs-dynamic-camera";
 const TARGET_SOCKET = `module.${MODULE_ID}`;
 const SETTING = "enabled";
-const FOCUS_TARGETS = "focusTargets";
 const SHOW_TARGET_PINGS = "showTargetPings";
 const PLAYER_ZOOM = "playerZoom";
 const SMOOTH_CAMERA = "smoothCamera";
 const TRANSITION_DURATION = "transitionDuration";
 const OUT_OF_COMBAT = "outOfCombatFollowing";
+const OUT_OF_COMBAT_VIEWING_MODE = "viewingMode";
+const IN_COMBAT_VIEWING_MODE = "combatViewingMode";
+const VIEWING_MODES = [
+  { value: "justPlayer", label: "Just Player" },
+  { value: "allPlayers", label: "All Players" },
+  { value: "visibleMonsters", label: "All Players And Visible Monsters" },
+  { value: "allMonsters", label: "All Players And All Monsters" }
+];
+const DEFAULT_VIEWING_MODE = "visibleMonsters";
+const COMBAT_VIEWING_MODES = [
+  VIEWING_MODES[0],
+  { value: "playerAndTargets", label: "Just Player and Targets" },
+  ...VIEWING_MODES.slice(1)
+];
 const PLAYER_POV = "seePlayerPOV";
 const MONSTER_POV = "monsterPOV";
 const PLAYER_ZOOM_DEFAULT = 50;
@@ -14,6 +27,7 @@ const PLAYER_ZOOM_RANGE = { min: 10, max: 250 };
 let targetUpdateQueued = false;
 const sharedTargets = new Map();
 const settingsObservers = new WeakMap();
+const boundSmoothCameraInputs = new WeakSet();
 let povToken;
 let previousSelection = [];
 const suppressedGraphics = new Map();
@@ -30,7 +44,7 @@ Hooks.once("init", () => {
   });
   game.settings.register(MODULE_ID, OUT_OF_COMBAT, {
     name: "Out Of Combat Following",
-    hint: "Keep visible player tokens in frame as they move outside combat while Follow Turns is on.",
+    hint: "Follow tokens outside combat while Follow Turns is on.",
     scope: "user",
     config: true,
     type: Boolean,
@@ -39,15 +53,12 @@ Hooks.once("init", () => {
       if (enabled) frameParty();
     }
   });
-  game.settings.register(MODULE_ID, FOCUS_TARGETS, {
-    name: "Focus Target Too",
-    hint: "Frame the active player's token and their visible targets together.",
-    scope: "user",
-    config: true,
-    type: Boolean,
-    default: false,
-    onChange: () => followTurn(game.combats.active)
-  });
+  registerViewingMode(OUT_OF_COMBAT_VIEWING_MODE, VIEWING_MODES,
+    "Choose which tokens to frame outside combat. Just Player is best suited to players. GMs and Assistant GMs must select tokens to use it.",
+    frameParty);
+  registerViewingMode(IN_COMBAT_VIEWING_MODE, COMBAT_VIEWING_MODES,
+    "Choose which tokens to frame during combat. Just Player follows the active player’s tokens. Just Player and Targets also frames their visible targets.",
+    () => followTurn(game.combats.active, { allowOwnTurn: true }));
   game.settings.register(MODULE_ID, SHOW_TARGET_PINGS, {
     name: "Show Target Pings",
     hint: "Show pings when the active combatant targets a token. Player-to-player pings are green. Other pings are red.",
@@ -109,35 +120,79 @@ Hooks.once("init", () => {
   });
 });
 
+function registerViewingMode(key, modes, hint, onChange) {
+  game.settings.register(MODULE_ID, key, {
+    name: "Viewing Mode",
+    hint,
+    scope: "user",
+    config: true,
+    type: new foundry.data.fields.StringField({ choices: modes.map(({ value }) => value) }),
+    input: (_field, config) => {
+      const options = isAssistantOrGM() ? modes : modes.filter(({ value }) => value !== "allMonsters");
+      return foundry.applications.fields.createSelectInput({
+        ...config,
+        value: options.some(({ value }) => value === config.value) ? config.value : DEFAULT_VIEWING_MODE,
+        options
+      });
+    },
+    default: DEFAULT_VIEWING_MODE,
+    onChange
+  });
+}
+
 Hooks.on("renderSettingsConfig", (app, element) => {
   const root = app.element ?? element;
   settingsObservers.get(app)?.disconnect();
-  insertSettingsQuote(root);
+  decorateSettingsPanel(root);
   // CategoryBrowser can replace the settings panel after the application has rendered.
-  const observer = new MutationObserver(() => insertSettingsQuote(root));
+  const observer = new MutationObserver(() => decorateSettingsPanel(root));
   observer.observe(root, { childList: true, subtree: true });
   settingsObservers.set(app, observer);
-
-  if (!isAssistantOrGM()) {
-    for (const setting of [PLAYER_POV, MONSTER_POV]) {
-      element.querySelector(`input[name="${MODULE_ID}.${setting}"]`)?.closest(".form-group")?.remove();
-    }
-  }
-  const smoothCamera = element.querySelector(`input[name="${MODULE_ID}.${SMOOTH_CAMERA}"]`);
-  const duration = element.querySelector(`input[name="${MODULE_ID}.${TRANSITION_DURATION}"]`);
-  if (!smoothCamera || !duration) return;
-
-  const updateDurationInput = () => {
-    duration.readOnly = !smoothCamera.checked;
-  };
-  updateDurationInput();
-  smoothCamera.addEventListener("change", updateDurationInput);
 });
 
 Hooks.on("closeSettingsConfig", (app) => {
   settingsObservers.get(app)?.disconnect();
   settingsObservers.delete(app);
 });
+
+function decorateSettingsPanel(root) {
+  const findInput = (setting) => root.querySelector(`[name="${MODULE_ID}.${setting}"]`);
+  const sections = [
+    [OUT_OF_COMBAT, "Out Of Combat"],
+    [IN_COMBAT_VIEWING_MODE, "In Combat"],
+    [SMOOTH_CAMERA, "Viewing Experience"]
+  ];
+  if (isAssistantOrGM()) {
+    sections.push([PLAYER_POV, "GM & Assistant GMS"]);
+  } else {
+    for (const setting of [PLAYER_POV, MONSTER_POV]) {
+      findInput(setting)?.closest(".form-group")?.remove();
+    }
+  }
+
+  for (const [setting, title] of sections) {
+    const row = findInput(setting)?.closest(".form-group");
+    if (!row || row.previousElementSibling?.dataset.dynamicCameraSection === setting) continue;
+    root.querySelector(`[data-dynamic-camera-section="${setting}"]`)?.remove();
+    const heading = root.ownerDocument.createElement("h3");
+    heading.dataset.dynamicCameraSection = setting;
+    heading.textContent = title;
+    row.before(heading);
+  }
+
+  insertSettingsQuote(root);
+  const smoothCamera = findInput(SMOOTH_CAMERA);
+  if (!smoothCamera) return;
+  const updateDurationInput = () => {
+    const duration = findInput(TRANSITION_DURATION);
+    if (duration) duration.readOnly = !smoothCamera.checked;
+  };
+  updateDurationInput();
+  if (!boundSmoothCameraInputs.has(smoothCamera)) {
+    boundSmoothCameraInputs.add(smoothCamera);
+    smoothCamera.addEventListener("change", updateDurationInput);
+  }
+}
 
 function insertSettingsQuote(root) {
   const settings = isAssistantOrGM() ? [MONSTER_POV, TRANSITION_DURATION] : [TRANSITION_DURATION];
@@ -233,6 +288,7 @@ Hooks.on("canvasReady", () => {
 Hooks.on("canvasTearDown", stopPlayerPOV);
 Hooks.on("controlToken", (token, controlled) => {
   if (token === povToken && !controlled) stopPlayerPOV({ restoreSelection: false });
+  if (viewingMode(OUT_OF_COMBAT_VIEWING_MODE) === "justPlayer") queueMicrotask(frameParty);
 });
 Hooks.on("refreshToken", updatePOVTokenDisplay);
 Hooks.on("sightRefresh", () => {
@@ -241,10 +297,20 @@ Hooks.on("sightRefresh", () => {
 Hooks.on("createToken", refreshPartyAfterTokenChange);
 Hooks.on("deleteToken", refreshPartyAfterTokenChange);
 Hooks.on("updateToken", (token, changes) => {
-  if (["x", "y", "width", "height", "hidden", "elevation"].some((key) => key in changes)) {
+  if (["x", "y", "width", "height", "hidden", "elevation", "rotation", "sight", "detectionModes", "actorId", "light"]
+    .some((key) => key in changes)) {
     refreshPartyAfterTokenChange(token, "x" in changes || "y" in changes || "elevation" in changes);
   }
 });
+for (const hook of ["createWall", "updateWall", "deleteWall", "createAmbientLight", "updateAmbientLight", "deleteAmbientLight"]) {
+  Hooks.on(hook, (document) => {
+    if (document.parent !== canvas?.scene) return;
+    const combat = game.combats.active;
+    if (combat?.started) {
+      if (viewingMode(IN_COMBAT_VIEWING_MODE) === "visibleMonsters") followTurn(combat);
+    } else if (viewingMode(OUT_OF_COMBAT_VIEWING_MODE) === "visibleMonsters") frameParty();
+  });
+}
 Hooks.on("targetToken", (user, token, targeted) => {
   if (canvas?.ready && targeted && user.id === game.user.id && token.document.parent === canvas.scene) {
     publishTargetPing(token);
@@ -332,7 +398,7 @@ function receiveTargets(message) {
 }
 
 function shouldFrameTargets() {
-  return game.settings.get(MODULE_ID, FOCUS_TARGETS) || canUseTargetFallback();
+  return viewingMode(IN_COMBAT_VIEWING_MODE) === "playerAndTargets";
 }
 
 function canUseTargetFallback() {
@@ -417,8 +483,11 @@ async function refreshPartyAfterTokenChange(token, moved = false) {
   if (!canvas?.ready || token.parent !== canvas.scene || !game.settings.get(MODULE_ID, SETTING)) return;
   const combat = game.combats.active;
   const combatant = combat?.started ? combat.combatant : null;
-  if (combatant?.hasPlayerOwner && (moved !== true || !token.actor?.hasPlayerOwner)) return;
-  if (!token.actor?.hasPlayerOwner && token !== combatant?.token) return;
+  if (combat?.started) {
+    const mode = viewingMode(IN_COMBAT_VIEWING_MODE);
+    if (mode === "justPlayer" && (moved !== true || (token !== combatant?.token
+      && !canActivePlayerControl(token.actor, combatant)))) return;
+  } else if (!game.settings.get(MODULE_ID, OUT_OF_COMBAT)) return;
 
   try {
     await token.object?.movementAnimationPromise;
@@ -427,7 +496,7 @@ async function refreshPartyAfterTokenChange(token, moved = false) {
   } finally {
     if (token.parent !== canvas.scene) return;
     if (combatant && combat === game.combats.active && combatant === combat.combatant) {
-      followTurn(combat, { framePlayers: true });
+      followTurn(combat);
     }
     else frameParty();
   }
@@ -437,8 +506,60 @@ function frameParty() {
   if (!canvas?.ready || game.combats.active?.started || !game.settings.get(MODULE_ID, SETTING)) return;
   if (!game.settings.get(MODULE_ID, OUT_OF_COMBAT)) return;
 
-  const tokens = visiblePlayerTokens();
+  const tokens = explorationTokens(viewingMode(OUT_OF_COMBAT_VIEWING_MODE));
   if (tokens.length) panToView(fitParty(tokens));
+}
+
+function viewingMode(key) {
+  const mode = game.settings.get(MODULE_ID, key);
+  if (mode === "allMonsters" && !isAssistantOrGM()) return DEFAULT_VIEWING_MODE;
+  return mode ?? DEFAULT_VIEWING_MODE;
+}
+
+function explorationTokens(mode) {
+  if (mode === "justPlayer") {
+    const { placeables, controlled } = canvas.tokens;
+    const tokens = controlled.length || isAssistantOrGM()
+      ? controlled
+      : placeables.filter((token) => token.document.isOwner);
+    return tokens.filter(isVisibleForCamera);
+  }
+  return groupViewingTokens(mode);
+}
+
+function groupViewingTokens(mode) {
+  const { placeables } = canvas.tokens;
+  if (mode === "allMonsters") return placeables;
+  const players = visiblePlayerTokens();
+  if (mode === "allPlayers") return players;
+  const monsters = placeables.filter((token) => !token.actor?.hasPlayerOwner
+    && !token.document.hidden && isVisibleForCamera(token));
+  if (!canvas.visibility.tokenVision || !monsters.length) return [...players, ...monsters];
+
+  const sources = [];
+  try {
+    // Detached sources let GMs test player sight without changing their own view or token selection.
+    for (const player of placeables) {
+      if (!player.actor?.hasPlayerOwner || player.document.hidden || !player.hasSight) continue;
+      const source = new CONFIG.Canvas.visionSourceClass({ object: player, sourceId: `${MODULE_ID}.${player.id}` });
+      const modes = Object.entries(player.detectionModes);
+      sources.push({ source, modes });
+      source.initialize(player._getVisionSourceData());
+    }
+    const visibleMonsters = monsters.filter((monster) => {
+      const point = { x: monster.center.x, y: monster.center.y, elevation: monster.document.elevation };
+      const config = canvas.visibility._createVisibilityTestConfig([point], { object: monster, tolerance: 2 });
+      return sources.some(({ source, modes }) => modes.some(([id, mode]) =>
+        CONFIG.Canvas.detectionModes[id]?.testVisibility(source, mode, config)
+      ));
+    });
+    return [...players, ...visibleMonsters];
+  } catch (error) {
+    console.error("Trash's Dynamic Camera | Could not test player vision.", error);
+    return players;
+  } finally {
+    for (const { source } of sources) source.destroy();
+  }
 }
 
 function visiblePlayerTokens() {
@@ -449,46 +570,49 @@ function fitParty(tokens) {
   return fitTokens(tokens, { maxScale: 1, viewportFraction: 0.75 });
 }
 
-function followTurn(combat, { framePlayers = false, allowOwnTurn = false } = {}) {
+function followTurn(combat, { allowOwnTurn = false } = {}) {
   if (!canvas?.ready || !combat?.isActive || !combat.started) return;
   if (!game.settings.get(MODULE_ID, SETTING)) return;
 
   const combatant = combat.combatant;
-  if (!combatant || (combatant.hidden && !game.user.isGM)) return;
+  if (!combatant) return;
   if (!allowOwnTurn && combatant.players.some((player) => player.id === game.user.id)) return;
 
+  const mode = viewingMode(IN_COMBAT_VIEWING_MODE);
+  if (mode !== "justPlayer" && mode !== "playerAndTargets") {
+    const tokens = groupViewingTokens(mode);
+    if (tokens.length) panToView(fitParty(tokens));
+    return;
+  }
+
+  if (combatant.hidden && !game.user.isGM) return;
   const tokenDocument = combatant.token;
   if (!tokenDocument || tokenDocument.parent !== canvas.scene) return;
   const token = tokenDocument.object;
   if (!token?.isVisible) return;
 
   if (!combatant.hasPlayerOwner) {
-    const players = visiblePlayerTokens();
-    const view = players.length ? fitParty([token, ...players]) : token.center;
-    panToView(view ?? token.center);
+    panToView(token.center);
     return;
   }
 
-  if (framePlayers) {
-    const tokens = new Set([token, ...visiblePlayerTokens()]);
-    if (shouldFrameTargets()) addVisibleTargets(tokens, combat);
-    panToView(fitParty(tokens));
-    return;
+  const tokens = new Set([token]);
+  for (const other of visiblePlayerTokens()) {
+    if (canActivePlayerControl(other.actor, combatant)) tokens.add(other);
   }
-
-  const targetView = shouldFrameTargets()
-    ? frameTargets(token, combat)
-    : undefined;
+  if (mode === "playerAndTargets") addVisibleTargets(tokens, combat);
   const { x, y } = token.center;
   const distance = game.settings.get(MODULE_ID, PLAYER_ZOOM);
   // At the default distance, keep the same scale as the previous 50% zoom.
-  panToView(targetView ?? { x, y, scale: 0.5 * PLAYER_ZOOM_DEFAULT / distance });
+  const scale = 0.5 * PLAYER_ZOOM_DEFAULT / distance;
+  const view = tokens.size > 1 ? fitTokens(tokens, { maxScale: scale, viewportFraction: 0.8 }) : undefined;
+  panToView(view ?? { x, y, scale });
 }
 
-function frameTargets(token, combat) {
-  const tokens = new Set([token]);
-  addVisibleTargets(tokens, combat);
-  if (tokens.size > 1) return fitTokens(tokens, { maxScale: canvas.stage.scale.x, viewportFraction: 0.8 });
+function canActivePlayerControl(actor, combatant) {
+  return Boolean(actor && combatant?.hasPlayerOwner && combatant.players.some((player) =>
+    actor.testUserPermission(player, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)
+  ));
 }
 
 function addVisibleTargets(tokens, combat) {
