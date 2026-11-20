@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/uncletrashtalk-logo.png" alt="UncleTrashTalk logo" width="720">
+</p>
+
 # Trash's Dynamic Camera
 
 Give viewers a clear view of the action while you focus on the session. **Trash’s Dynamic Camera** brings automatic camera movement to Foundry VTT, with settings that players and GMs can tune for their own view. It’s especially useful for streamed or recorded sessions, where viewers need to see who’s acting, what they’re targeting, and where the rest of the party is.
