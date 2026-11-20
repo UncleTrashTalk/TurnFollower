@@ -1,5 +1,13 @@
 # Trash's Dynamic Camera
 
+Give viewers a clear view of the action while you focus on the session. **Trash’s Dynamic Camera** brings automatic camera movement to Foundry VTT, with settings that players and GMs can tune for their own view. It’s especially useful for streamed or recorded sessions, where viewers need to see who’s acting, what they’re targeting, and where the rest of the party is.
+
+During combat, the camera pans and zooms to the active token. On a player’s turn, it can pull back to include their visible targets, with optional pings to show who they’ve selected. On a monster’s turn, it frames the monster and the visible party together for a wider view of the battlefield. When your own turn starts, the camera focuses on you once, then gives you control of the view while other viewers continue following the action.
+
+GMs and Assistant GMs can also preview the battlefield through the active player or monster token’s vision and senses. That lets a stream follow what the character can actually see and keeps hidden threats out of view until they’re revealed.
+
+Outside combat, optional party following keeps visible player tokens in frame as they explore. You can set how close the camera gets on player turns and how long it takes to pan and zoom, so the transitions feel right for your table or stream.
+
 A system-independent module for Foundry VTT 14 Stable 9 (14.367) and later on The Forge.
 
 ## Install on The Forge
