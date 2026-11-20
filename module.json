@@ -1,0 +1,12 @@
+{
+  "id": "trashs-dynamic-camera",
+  "title": "Trash's Dynamic Camera",
+  "description": "Pan to the active combatant's token, with a toggle in the main scene controls.",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "14.367",
+    "verified": "14.370"
+  },
+  "esmodules": ["trashs-dynamic-camera.mjs"],
+  "socket": true
+}
