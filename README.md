@@ -43,7 +43,7 @@ With **Out Of Combat Following** enabled, **Viewing Mode** determines which toke
 - **All Players And Visible Monsters** also frames monsters detected by player token vision. This is the default.
 - **All Players And All Monsters** includes hidden monsters and is available to GMs and Assistant GMs.
 
-The two **Just Player** modes center on the active monster or NPC during its turn.
+For GMs and Assistant GMs, monster turns override every combat viewing mode. The camera centers on the active monster unless it can detect player tokens, in which case it frames the monster and those players with padding. **Monster POV** separately controls whether the canvas displays through the monster's vision.
 
 On your own turn, the camera moves once at the start. Automatic adjustments for movement and targets resume for you when combat advances. Other viewers continue receiving camera updates during your turn.
 
@@ -53,6 +53,10 @@ These options are under **Game Settings → Configure Settings → Trash's Dynam
 
 - **Player Turn Zoom** sets the camera distance for a player token framed alone. Drag the slider or type a whole number from 10 to 250 in the adjacent box. The default is 50. Lower values zoom in and higher values zoom out.
 - **Show Target Pings** displays Foundry's pulse on a visible target selected during the targeting combatant's turn. Player-to-player pings are green. Pings involving a monster or NPC are red. This option is off by default and works independently of camera following.
+- **Show Target Lines** draws glowing lines from the active combatant to visible targets until they are cleared or the turn advances. Player-to-player lines are green. Lines involving a monster or NPC are red. This option is off by default and works independently of camera following.
+- **Show Target Token Glow** draws a glowing ring around each visible target during the active combatant's turn. This option is off by default.
+
+Each target effect has its own **Friendly** and **Hostile** color settings. Enable the effect to see its color pickers and editable hex codes. The default colors are green for player-to-player targeting and red for any targeting involving a monster or NPC.
 - **Smooth Camera** uses the configured duration for automatic pan and zoom transitions with Foundry's easing. This option is off by default.
 - **Transition Duration** sets how long a smooth camera transition takes. It defaults to 1 second and accepts decimal values from 0.4 to 3 seconds.
 - **See Player POV** lets Assistant GMs and GMs preview the active player's token vision and detection modes on scenes with Token Vision enabled. The preview hides GM-hidden tokens and restores the previous token selection after player turns. This option is off by default.
